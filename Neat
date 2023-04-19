@@ -1,0 +1,98 @@
+import os
+import cv2
+import numpy as np
+import neat
+import matplotlib
+import graphviz
+os.chdir('/content/drive/MyDrive/neat project')
+import visualize
+
+from sklearn.model_selection import train_test_split
+# Load dataset
+data = []
+labels = []
+parkinsons_path = "/content/drive/MyDrive/Parkinsion project/Dataset/RNN datasets/Cube/Patient/32x32"
+non_parkinsons_path = "/content/drive/MyDrive/Parkinsion project/Dataset/RNN datasets/Cube/Control/32x32"
+for filename in os.listdir(parkinsons_path):
+    img = cv2.imread(os.path.join(parkinsons_path, filename), cv2.IMREAD_GRAYSCALE)
+    img = cv2.resize(img, (32, 32))
+    data.append(img.flatten())
+    labels.append(0)  # 0 represents parkinsons
+for filename in os.listdir(non_parkinsons_path):
+    img = cv2.imread(os.path.join(non_parkinsons_path, filename), cv2.IMREAD_GRAYSCALE)
+    img = cv2.resize(img, (32, 32))
+    data.append(img.flatten())
+    labels.append(1)  # 1 represents non-parkinsons
+
+data = np.array(data)
+labels = np.array(labels)
+
+# Split into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.2, random_state=42)
+
+# Normalize data
+X_train = X_train / 255.0
+X_test = X_test / 255.0
+
+# Define evaluation function
+def eval_genomes(genomes, config):
+    for genome_id, genome in genomes:
+        genome.fitness = 100
+        net = neat.nn.FeedForwardNetwork.create(genome, config)
+        for xi, xo in zip(X_train, y_train):
+            output = net.activate(xi)
+            genome.fitness -= (output[0] - xo) ** 2
+            #if output[0]-xo == 0:
+            #  genome.fitness+=1
+            #else:
+            #  genome.fitness-=1
+
+# Define the NEAT training function
+def run(config_file):
+    # Load configuration.
+    config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
+                         neat.DefaultSpeciesSet, neat.DefaultStagnation,
+                         config_file)
+
+    # Create the population, which is the top-level object for a NEAT run.
+    p = neat.Population(config)
+
+    # Add a stdout reporter to show progress in the terminal.
+    p.add_reporter(neat.StdOutReporter(True))
+    stats = neat.StatisticsReporter()
+    p.add_reporter(stats)
+    p.add_reporter(neat.Checkpointer(5))
+
+    # Run for up to 50 generations.
+    winner = p.run(eval_genomes, 50)
+
+    # Display the winning genome.
+    print('\nBest genome:\n{!s}'.format(winner))
+
+    # Show output of the most fit genome against testing data.
+    print('\nTesting Output:')
+    winner_net = neat.nn.FeedForwardNetwork.create(winner, config)
+    correct = 0
+    total = 0
+    for xi, xo in zip(X_test, y_test):
+        output = winner_net.activate(xi)
+        prediction = round(output[0])
+        if prediction == xo:
+            correct += 1
+        total += 1
+    print("Accuracy: {}%".format((correct/total)*100))
+
+    node_names = {-1: 'input', -2: 'output'}
+    visualize.draw_net(config, winner, True, node_names=node_names)
+    visualize.draw_net(config, winner, True, node_names=node_names)
+    visualize.plot_stats(stats, ylog=False, view=True)
+    visualize.plot_species(stats, view=True)
+
+    #p = neat.Checkpointer.restore_checkpoint('neat-checkpoint-4')
+    #p.run(eval_genomes, 50)
+
+
+if __name__ == '__main__':
+    local_dir = os.path.abspath('/content/drive/MyDrive/Colab Notebooks')
+    config_path = os.path.join(local_dir, 'config-feedforward')
+    run(config_path)
